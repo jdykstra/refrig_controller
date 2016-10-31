@@ -10,9 +10,9 @@
 
 /*  Hardware definitions.  */
 #define PIN_IR_IN       2       /* IR receive input */
-#define PIN_REFRIG      11      /* Refrigerator power */
-#define PIN_LED         12      /* Extra LED */
-#define PIN_PILOT       LED_BUILTIN   /* Pilot light */
+#define PIN_REFRIG      6       /* Refrigerator power */
+#define PIN_LED         4       /* Extra LED */
+#define PIN_PILOT       5       /* Pilot light */
 
 /* Output pin HIGH level turns power on. */
 #define ON              HIGH
@@ -21,40 +21,22 @@
 /* Objects for infrared communication. */
 IRrecv myReceiver(PIN_IR_IN);
 IRdecodeNEC myDecoder;
-IRsendNEC mySender;
-
 
 
 /* System states. */
 enum {
-  SYS_IDLE,
-  SYS_ACTIVATED
+  SYS_POWER_ON,
+  SYS_POWER_OFF
 };
 
-int currentSysState = SYS_IDLE;
+int currentSysState = SYS_POWER_OFF;  // The way the pins come up
 
-void stateSysIdle(int newSysState)
+void statePowerOff(int newSysState)
 {
   switch (newSysState){
-    case SYS_LIVING_ROOM_UP:
+    case SYS_POWER_ON:
       digitalWrite(PIN_PILOT, ON);
-      digitalWrite(PIN_SRC_PWR, ON);
-      delay(7*1000);
-      digitalWrite(PIN_LOW_PWR, ON);
-      delay(1*1000);
-      digitalWrite(PIN_HIGH_PWR, ON);
-
-      /* Turn off the refrigerator. */
-      /* ??  Dummy code for now. */
-      sendIRCommand(0x58A741BE);  
-      break;
-      
-    case SYS_OFFICE_UP:
-      digitalWrite(PIN_PILOT, ON);
-      digitalWrite(PIN_SPKR_SW, ON);
-      digitalWrite(PIN_SRC_PWR, ON);
-      delay(7*1000);
-      digitalWrite(PIN_HIGH_PWR, ON);
+      digitalWrite(PIN_REFRIG, ON);
       break;
       
     default:
@@ -63,56 +45,14 @@ void stateSysIdle(int newSysState)
 }
 
 
-void stateActivated(int newSysState)
+void statePowerOn(int newSysState)
 {
   switch (newSysState){
-    case SYS_DOWN:
+    case SYS_POWER_OFF:
       digitalWrite(PIN_PILOT, OFF);
-      digitalWrite(PIN_HIGH_PWR, OFF);
-      digitalWrite(PIN_LOW_PWR, OFF);
-      delay(5*1000);
-      digitalWrite(PIN_SRC_PWR, OFF);
-
-      /* Turn on the refrigerator. */
-      /* ??  Dummy code for now. */
-      sendIRCommand(0x58A741BE);  
+      digitalWrite(PIN_REFRIG, OFF);
       break;
-      
-    case SYS_OFFICE_UP:
-      digitalWrite(PIN_SPKR_SW, ON);
-      digitalWrite(PIN_LOW_PWR, OFF);
-
-      /* Turn on the refrigerator. */
-      /* ??  Dummy code for now. */
-      sendIRCommand(0x58A741BE);  
-      break;
-      
-    default:
-      Serial.println(F("Null state transition."));
-  }
-}
-
-
-void stateOfficeUp(int newSysState)
-{
-  switch (newSysState){
-    case SYS_LIVING_ROOM_UP:
-      digitalWrite(PIN_LOW_PWR, ON);
-      digitalWrite(PIN_SPKR_SW, OFF);
-
-      /* Turn off the refrigerator. */
-      /* ??  Dummy code for now. */
-      sendIRCommand(0x58A741BE);  
-      break;
-      
-    case SYS_DOWN:
-      digitalWrite(PIN_PILOT, OFF);
-      digitalWrite(PIN_HIGH_PWR, OFF);
-      delay(5*1000);
-      digitalWrite(PIN_SRC_PWR, OFF);
-      digitalWrite(PIN_SPKR_SW, OFF);
-      break;
-      
+            
     default:
       Serial.println(F("Null state transition."));
   }
@@ -123,44 +63,28 @@ void stateOfficeUp(int newSysState)
 void setSysState(int newSysState)
 {
   switch (currentSysState){
-    case SYS_DOWN:
-      stateSysDown(newSysState);
+    case SYS_POWER_OFF:
+      statePowerOff(newSysState);
       break;
 
-    case SYS_LIVING_ROOM_UP:
-      stateLivingRoomUp(newSysState);
-      break;
-
-    case SYS_OFFICE_UP:
-      stateOfficeUp(newSysState);
+    case SYS_POWER_ON:
+      statePowerOn(newSysState);
       break;
   }
-
+      
   currentSysState = newSysState;
 }
 
 
-void cmdActivate()
+void cmdPowerOn()
 {
-  switch (currentSysState){
-    case SYS_DOWN:
-      setSysState(SYS_ACTIVATED);
-      break;
-
-    case SYS_LIVING_ROOM_UP:
-      setSysState(SYS_DOWN);
-      break;
-
-    case SYS_OFFICE_UP:
-      setSysState(SYS_LIVING_ROOM_UP);
-      break;
-  }
+  setSysState(SYS_POWER_ON);
 }
 
 
-void cmdIdle()
+void cmdPowerOff()
 {
-  setSysState(SYS_IDLE);
+  setSysState(SYS_POWER_OFF);
 }
 
 
@@ -174,23 +98,14 @@ void setup()
    *  Configure input and output pins, except those managed
    *  by IRLib2.
    */
-  pinMode(PIN_PWR_SW, INPUT_PULLUP);
-  pinMode(PIN_OVER_SW, INPUT_PULLUP);
-  pinMode(PIN_SRC_PWR, OUTPUT);
-  pinMode(PIN_HIGH_PWR, OUTPUT);
-  pinMode(PIN_LOW_PWR, OUTPUT);
-  pinMode(PIN_SPKR_SW, OUTPUT);
+  pinMode(PIN_PILOT, OUTPUT);
+  pinMode(PIN_REFRIG, OUTPUT);
+  pinMode(PIN_LED, OUTPUT);
+
+  setSysState(SYS_POWER_ON);
+
  
   /* Initialize IRLib2. */
-  /*  
-   *   The IR repeater lengthens marks, at least partially due to
-   *   the slow fall time of the line from the receivers to the 
-   *   central unit due to line capacitance.  This compensory 
-   *   value was determined empirically.
-   */
-  myReceiver.markExcess = 4*myReceiver.markExcess;
-  
-  IRLib_NoOutput();
   myReceiver.enableIRIn();
   
   Serial.println(F("Initialization complete."));
@@ -208,12 +123,12 @@ void loop() {
     Serial.println(myDecoder.value, HEX);
     if (myDecoder.protocolNum == NEC){
       switch (myDecoder.value){
-        case 0x8322718E:
-          cmdLivingRoomPower();
+        case 0x8322639C:
+          cmdPowerOff();
           break;
-         case 0x83228C73:
-           cmdOfficePower();
-           break;
+        case 0x8322629D:
+          cmdPowerOn();
+          break;
       }
     }
     myReceiver.enableIRIn();    //  Restart receiver
