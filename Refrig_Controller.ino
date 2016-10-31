@@ -7,16 +7,14 @@
 #include <IRLibSendBase.H>
 #include <IRLib_P01_NEC.h>
 
+/*  Build options */
+#define OFF_TIMEOUT     1*60*60   /* Max seconds we stay in off state */
 
 /*  Hardware definitions.  */
 #define PIN_IR_IN       2       /* IR receive input */
 #define PIN_REFRIG      6       /* Refrigerator power */
 #define PIN_LED         4       /* Extra LED */
 #define PIN_PILOT       5       /* Pilot light */
-
-/* Output pin HIGH level turns power on. */
-#define ON              HIGH
-#define OFF             LOW
 
 /* Objects for infrared communication. */
 IRrecv myReceiver(PIN_IR_IN);
@@ -29,14 +27,15 @@ enum {
   SYS_POWER_OFF
 };
 
-int currentSysState = SYS_POWER_OFF;  // The way the pins come up
+int currentSysState = SYS_POWER_ON;  
+unsigned long offTime;                          // ms. counter when power turned off
 
 void statePowerOff(int newSysState)
 {
   switch (newSysState){
     case SYS_POWER_ON:
-      digitalWrite(PIN_PILOT, ON);
-      digitalWrite(PIN_REFRIG, ON);
+      digitalWrite(PIN_PILOT, HIGH);
+      digitalWrite(PIN_REFRIG, LOW);
       break;
       
     default:
@@ -49,8 +48,10 @@ void statePowerOn(int newSysState)
 {
   switch (newSysState){
     case SYS_POWER_OFF:
-      digitalWrite(PIN_PILOT, OFF);
-      digitalWrite(PIN_REFRIG, OFF);
+      digitalWrite(PIN_PILOT, LOW);
+      digitalWrite(PIN_REFRIG, HIGH);
+
+      offTime = millis();
       break;
             
     default:
@@ -102,9 +103,9 @@ void setup()
   pinMode(PIN_REFRIG, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
 
-  setSysState(SYS_POWER_ON);
+  digitalWrite(PIN_PILOT, HIGH);
+  digitalWrite(PIN_REFRIG, LOW);
 
- 
   /* Initialize IRLib2. */
   myReceiver.enableIRIn();
   
@@ -133,5 +134,10 @@ void loop() {
     }
     myReceiver.enableIRIn();    //  Restart receiver
   }
+
+  /*  Check for timer expiration. */
+  if ((currentSysState == SYS_POWER_OFF) &&
+        (millis() - offTime > 1000UL*OFF_TIMEOUT))
+    cmdPowerOn();
 }
 
