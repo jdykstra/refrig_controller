@@ -12,6 +12,14 @@
 #define COMPRESSOR_TIMEOUT 10*60  /* Min seconds after off before we can go to on */
 #define WARBLE_PERIOD   500       /* Pilot "warble" period in ms. */
 
+/* 
+ *  IR Command codes.  Some of these are shared with the
+ *  power controller, and ideally would be in a 
+ *  shared header file.
+ */
+#define CODE_REFRIG_OFF   0x8322639C
+#define CODE_REFRIG_ON    0x8322629D
+
 /*  Hardware definitions.  */
 #define PIN_IR_IN       2       /* IR receive input */
 #define PIN_REFRIG      6       /* Refrigerator power */
@@ -164,10 +172,10 @@ void loop() {
     Serial.println(myDecoder.value, HEX);
     if (myDecoder.protocolNum == NEC){
       switch (myDecoder.value){
-        case 0x8322639C:
+        case CODE_REFRIG_OFF:
           cmdPowerOff();
           break;
-        case 0x8322629D:
+        case CODE_REFRIG_ON:
           cmdPowerOn();
           break;
       }
