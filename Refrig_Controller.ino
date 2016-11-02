@@ -132,6 +132,13 @@ void loop() {
           break;
       }
     }
+    else if (myDecoder.protocolNum == 0){
+
+      //  Attempt to kludge around an apparent bug that hangs
+      //  the IR receiver after it gets an all-zero code.
+      myReceiver.disableIRIn();    //  Restart receiver
+      delay(500);
+    }
     myReceiver.enableIRIn();    //  Restart receiver
   }
 
