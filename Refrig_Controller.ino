@@ -9,6 +9,8 @@
 
 /*  Build options */
 #define OFF_TIMEOUT     1*60*60   /* Max seconds we stay in off state */
+#define COMPRESSOR_TIMEOUT 10*60  /* Min seconds after off before we can go to on */
+#define WARBLE_PERIOD   500       /* Pilot "warble" period in ms. */
 
 /*  Hardware definitions.  */
 #define PIN_IR_IN       2       /* IR receive input */
@@ -24,7 +26,8 @@ IRdecodeNEC myDecoder;
 /* System states. */
 enum {
   SYS_POWER_ON,
-  SYS_POWER_OFF
+  SYS_POWER_OFF,
+  SYS_COMPRESSOR_TIMEOUT
 };
 
 int currentSysState = SYS_POWER_ON;  
@@ -36,6 +39,14 @@ void statePowerOff(int newSysState)
     case SYS_POWER_ON:
       digitalWrite(PIN_PILOT, HIGH);
       digitalWrite(PIN_REFRIG, LOW);
+      break;
+      
+    case SYS_COMPRESSOR_TIMEOUT:
+      /*
+       * Turn on the pilot LED to give immediate feedback.  The
+       * main loop will then "warble" it during the timeout.
+       */
+      digitalWrite(PIN_PILOT, HIGH);
       break;
       
     default:
@@ -52,6 +63,28 @@ void statePowerOn(int newSysState)
       digitalWrite(PIN_REFRIG, HIGH);
 
       offTime = millis();
+      break;
+            
+    case SYS_COMPRESSOR_TIMEOUT:
+      /* This transition shouldn't happen. */
+      break;
+      
+    default:
+      Serial.println(F("Null state transition."));
+  }
+}
+
+void stateCompressorTimeout(int newSysState)
+{
+  switch (newSysState){
+    case SYS_POWER_ON:
+      digitalWrite(PIN_PILOT, HIGH);
+      digitalWrite(PIN_REFRIG, LOW);
+      break;
+      
+    case SYS_POWER_OFF:
+      digitalWrite(PIN_PILOT, LOW);
+      digitalWrite(PIN_REFRIG, HIGH);
       break;
             
     default:
@@ -71,6 +104,10 @@ void setSysState(int newSysState)
     case SYS_POWER_ON:
       statePowerOn(newSysState);
       break;
+
+    case SYS_COMPRESSOR_TIMEOUT:
+      stateCompressorTimeout(newSysState);
+      break;
   }
       
   currentSysState = newSysState;
@@ -79,7 +116,10 @@ void setSysState(int newSysState)
 
 void cmdPowerOn()
 {
-  setSysState(SYS_POWER_ON);
+  if (millis() - offTime > 1000UL*COMPRESSOR_TIMEOUT)
+    setSysState(SYS_POWER_ON);
+  else
+    setSysState(SYS_COMPRESSOR_TIMEOUT);
 }
 
 
@@ -143,8 +183,27 @@ void loop() {
   }
 
   /*  Check for timer expiration. */
-  if ((currentSysState == SYS_POWER_OFF) &&
-        (millis() - offTime > 1000UL*OFF_TIMEOUT))
-    cmdPowerOn();
+  switch (currentSysState){
+    case SYS_POWER_ON:
+      /*  Timer not used in this state. */
+      break;
+
+    case SYS_POWER_OFF:
+      if (millis() - offTime > 1000UL*OFF_TIMEOUT)
+        cmdPowerOn();
+      break;
+
+    case SYS_COMPRESSOR_TIMEOUT:
+      if (millis() - offTime > 1000UL*COMPRESSOR_TIMEOUT)
+        cmdPowerOn();
+      break;
+  }
+
+  /*  If we're in SYS_COMPRESSOR_TIMEOUT, "warble" the pilot LED. */
+  if (currentSysState == SYS_COMPRESSOR_TIMEOUT){
+    int proportion = (millis() % WARBLE_PERIOD) * 0xff / WARBLE_PERIOD;
+    analogWrite(PIN_PILOT, proportion);
+  }
+
 }
 
