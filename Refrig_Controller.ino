@@ -50,11 +50,11 @@ void statePowerOff(int newSysState)
       break;
       
     case SYS_COMPRESSOR_TIMEOUT:
-      /*
-       * Turn on the pilot LED to give immediate feedback.  The
-       * main loop will then "warble" it during the timeout.
+      /* 
+       *  Nothing to do here.  We leave the power off,
+       *  and the main loop will take care of 
+       *  "warbling" the pilot LED.
        */
-      digitalWrite(PIN_PILOT, HIGH);
       break;
       
     default:
@@ -209,7 +209,9 @@ void loop() {
 
   /*  If we're in SYS_COMPRESSOR_TIMEOUT, "warble" the pilot LED. */
   if (currentSysState == SYS_COMPRESSOR_TIMEOUT){
-    int proportion = (millis() % WARBLE_PERIOD) * 0xff / WARBLE_PERIOD;
+    int proportion = (millis() % WARBLE_PERIOD) * 0x1ff / WARBLE_PERIOD;
+    if (proportion > 0xff)
+      proportion = 0xff - (proportion - 0x100);
     analogWrite(PIN_PILOT, proportion);
   }
 
