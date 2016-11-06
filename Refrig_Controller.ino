@@ -8,7 +8,7 @@
 #include <IRLib_P01_NEC.h>
 
 /*  Build options */
-#define OFF_TIMEOUT     1*60*60   /* Max seconds we stay in off state */
+#define OFF_TIMEOUT     90*60     /* Max seconds we stay in off state */
 #define COMPRESSOR_TIMEOUT 10*60  /* Min seconds after off before we can go to on */
 #define WARBLE_PERIOD   500       /* Pilot "warble" period in ms. */
 
