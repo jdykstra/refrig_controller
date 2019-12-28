@@ -4,7 +4,7 @@
 
 #include <IRLibRecv.h>
 #include <IRLibDecodeBase.h>
-#include <IRLibSendBase.H>
+#include <IRLibSendBase.h>
 #include <IRLib_P01_NEC.h>
 
 /*  Build options */
@@ -216,4 +216,3 @@ void loop() {
   }
 
 }
-
