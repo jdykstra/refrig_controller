@@ -2,33 +2,18 @@
  *     
  */
 
-#include <IRLibRecv.h>
-#include <IRLibDecodeBase.h>
-#include <IRLibSendBase.h>
-#include <IRLib_P01_NEC.h>
 
 /*  Build options */
 #define OFF_TIMEOUT     90*60     /* Max seconds we stay in off state */
 #define COMPRESSOR_TIMEOUT 10*60  /* Min seconds after off before we can go to on */
 #define WARBLE_PERIOD   500       /* Pilot "warble" period in ms. */
 
-/* 
- *  IR Command codes.  Some of these are shared with the
- *  power controller, and ideally would be in a 
- *  shared header file.
- */
-#define CODE_REFRIG_OFF   0x8322639C
-#define CODE_REFRIG_ON    0x8322629D
-
 /*  Hardware definitions.  */
-#define PIN_IR_IN       2       /* IR receive input */
+#define PIN_CMD_IN      2       /* IR receive input */
 #define PIN_REFRIG      6       /* Refrigerator power */
 #define PIN_LED         4       /* Extra LED */
 #define PIN_PILOT       5       /* Pilot light */
 
-/* Objects for infrared communication. */
-IRrecv myReceiver(PIN_IR_IN);
-IRdecodeNEC myDecoder;
 
 
 /* System states. */
@@ -144,9 +129,9 @@ void setup()
   delay(2000);while(!Serial);     //delay for Leonardo
 
   /* 
-   *  Configure input and output pins, except those managed
-   *  by IRLib2.
+   *  Configure input and output pins.
    */
+  pinMode(PIN_CMD_IN, INPUT);
   pinMode(PIN_PILOT, OUTPUT);
   pinMode(PIN_REFRIG, OUTPUT);
   pinMode(PIN_LED, OUTPUT);
@@ -154,55 +139,28 @@ void setup()
   digitalWrite(PIN_PILOT, HIGH);
   digitalWrite(PIN_REFRIG, LOW);
 
-  /* Initialize IRLib2. */
-  myReceiver.enableIRIn();
-  
   Serial.println(F("Initialization complete."));
 }
 
 
 void loop() {
 
-  /* Process IR commands. */
-  if (myReceiver.getResults()) {
-    myDecoder.decode();
-    Serial.print(F("IR protocol "));
-    Serial.print(myDecoder.protocolNum, DEC);
-    Serial.print(F(" value "));
-    Serial.println(myDecoder.value, HEX);
-    if (myDecoder.protocolNum == NEC){
-      switch (myDecoder.value){
-        case CODE_REFRIG_OFF:
-          cmdPowerOff();
-          break;
-        case CODE_REFRIG_ON:
-          cmdPowerOn();
-          break;
-      }
-    }
-    else if (myDecoder.protocolNum == 0){
-
-      //  Attempt to kludge around an apparent bug that hangs
-      //  the IR receiver after it gets an all-zero code.
-      myReceiver.disableIRIn();    //  Restart receiver
-      delay(500);
-    }
-    myReceiver.enableIRIn();    //  Restart receiver
-  }
-
-  /*  Check for timer expiration. */
+  /*  Event loop */
   switch (currentSysState){
     case SYS_POWER_ON:
-      /*  Timer not used in this state. */
+      if (digitalRead(PIN_CMD_IN) == LOW)
+        cmdPowerOff();
       break;
 
     case SYS_POWER_OFF:
-      if (millis() - offTime > 1000UL*OFF_TIMEOUT)
+      if ((digitalRead(PIN_CMD_IN) == HIGH) || (millis() - offTime > 1000UL*OFF_TIMEOUT))
         cmdPowerOn();
       break;
 
     case SYS_COMPRESSOR_TIMEOUT:
-      if (millis() - offTime > 1000UL*COMPRESSOR_TIMEOUT)
+      if (digitalRead(PIN_CMD_IN) == LOW)
+        cmdPowerOff();
+      else if (millis() - offTime > 1000UL*COMPRESSOR_TIMEOUT)
         cmdPowerOn();
       break;
   }
