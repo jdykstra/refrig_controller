@@ -2,132 +2,96 @@
 
 */
 
-#include <time.h>
-
 /*  Build options */
-#define MAXIMUM_OFF_TIMEOUT     90*60     /* Max seconds we stay in off state */
-#define COMPRESSOR_TIMEOUT      10*60     /* Min seconds after off before we can go to on */
+#define MAXIMUM_OFF_TIMEOUT     2*60     /* Max seconds we stay in commanded off state */ ////////////
+#define COMPRESSOR_TIMEOUT      10*60     /* Min seconds after off before we can go to on */ 
 #define WARBLE_PERIOD           500       /* Pilot "warble" period in ms. */
 
 /*  Hardware definitions.  */
-#define PIN_CMD_IN      2       /* IR receive input */
-#define PIN_REFRIG      6       /* Refrigerator power */
-#define PIN_LED         4       /* Extra LED */
-#define PIN_PILOT       5       /* Pilot light */
+#define PIN_CMD_IN              2         /* IR receive input */
+#define PIN_REFRIG              6         /* Refrigerator power */
+#define PIN_LED                 4         /* Extra LED */
+#define PIN_PILOT               5         /* Pilot light */
 
 /* Command input is low when active.  */
-#define CMD_OFF         LOW     /* Turn refrigerator off */
-#define CMD_ON          HIGH    /* Turn refrigerator on */
-
-
+#define CMD_ACTIVE              LOW       /* Turn refrigerator off */
+#define CMD_INACTIVE            HIGH      /* Turn refrigerator on */
 
 /* System states. */
 enum {
-  SYS_POWER_ON,
-  SYS_POWER_OFF,
-  SYS_COMPRESSOR_TIMEOUT
+  SYSTEM_IDLE_ON,
+  SYSTEM_COMMANDED_OFF,
+  SYSTEM_COMPRESSOR_PROTECT_OFF,
+  SYSTEM_MAX_TIME_ON
 };
 
-int currentSysState = SYS_POWER_ON;
-unsigned long offTime;                          // ms. counter when power turned off
+/* System state names, for debugging messages. */
+char *stateNames[] = {
+  "SYSTEM_IDLE_ON",
+  "SYSTEM_COMMANDED_OFF",
+  "SYSTEM_COMPRESSOR_PROTECT_OFF",
+  "SYSTEM_MAX_TIME_ON"
+};
 
-void statePowerOff(int newSysState)
+/* Refrigerator power states */
+enum {
+  FRIDGE_POWER_ON,
+  FRIDGE_POWER_OFF
+};
+
+/* Command input states */
+enum {
+  COMMAND_INPUT_INACTIVE,
+  COMMAND_INPUT_ACTIVE
+};
+
+/* Global variables */
+int currentSysState;
+int currentFridgeState;
+int currentInputState;
+unsigned long fridgeOffTimestamp;                 /* ms. counter when power turned off */
+
+
+void fridgePowerOn()
 {
-  switch (newSysState) {
-    case SYS_POWER_ON:
-      digitalWrite(PIN_PILOT, HIGH);
-      digitalWrite(PIN_REFRIG, LOW);
-      break;
+  if (currentFridgeState == FRIDGE_POWER_OFF) {
+    digitalWrite(PIN_PILOT, HIGH);
+    digitalWrite(PIN_REFRIG, LOW);
 
-    case SYS_COMPRESSOR_TIMEOUT:
-      /*
-          Nothing to do here.  We leave the power off,
-          and the main loop will take care of
-          "warbling" the pilot LED.
-      */
-      break;
-
-    default:
-      Serial.println(F("Null state transition."));
+    currentFridgeState = FRIDGE_POWER_ON;
   }
 }
 
 
-void statePowerOn(int newSysState)
+void fridgePowerOff()
 {
-  switch (newSysState) {
-    case SYS_POWER_OFF:
-      digitalWrite(PIN_PILOT, LOW);
-      digitalWrite(PIN_REFRIG, HIGH);
+  if (currentFridgeState == FRIDGE_POWER_ON) {
+    digitalWrite(PIN_PILOT, LOW);
+    digitalWrite(PIN_REFRIG, HIGH);
 
-      offTime = millis();
-      break;
-
-    case SYS_COMPRESSOR_TIMEOUT:
-      /* This transition shouldn't happen. */
-      break;
-
-    default:
-      Serial.println(F("Null state transition."));
-  }
-}
-
-void stateCompressorTimeout(int newSysState)
-{
-  switch (newSysState) {
-    case SYS_POWER_ON:
-      digitalWrite(PIN_PILOT, HIGH);
-      digitalWrite(PIN_REFRIG, LOW);
-      break;
-
-    case SYS_POWER_OFF:
-      digitalWrite(PIN_PILOT, LOW);
-      digitalWrite(PIN_REFRIG, HIGH);
-      break;
-
-    default:
-      Serial.println(F("Null state transition."));
+    currentFridgeState = FRIDGE_POWER_OFF;
+    fridgeOffTimestamp = millis();
   }
 }
 
 
 /* Move to the specified system state. */
-void setSysState(int newSysState)
+void moveToState(int newSysState)
 {
-  switch (currentSysState) {
-    case SYS_POWER_OFF:
-      statePowerOff(newSysState);
+  switch (newSysState) {
+    case SYSTEM_IDLE_ON:
+    case SYSTEM_MAX_TIME_ON:
+      fridgePowerOn();
       break;
 
-    case SYS_POWER_ON:
-      statePowerOn(newSysState);
-      break;
-
-    case SYS_COMPRESSOR_TIMEOUT:
-      stateCompressorTimeout(newSysState);
+    case SYSTEM_COMMANDED_OFF:
+    case SYSTEM_COMPRESSOR_PROTECT_OFF:
+      fridgePowerOff();
       break;
   }
 
   currentSysState = newSysState;
-}
-
-
-void cmdPowerOn()
-{
-  if (millis() - offTime > 1000UL * COMPRESSOR_TIMEOUT){
-    setSysState(SYS_POWER_ON);
-    Serial.println(F("Received ON command.  Turning refrigerator on."));  
-  } else {
-    setSysState(SYS_COMPRESSOR_TIMEOUT);
-    Serial.println(F("Received ON command.  Starting compressor protection timeout."));
-  }
-}
-
-
-void cmdPowerOff()
-{
-  setSysState(SYS_POWER_OFF);
-  Serial.println(F("Received OFF command.  Turning refrigerator off."));  
+  Serial.println(stateNames[currentSysState]);
 }
 
 
@@ -147,50 +111,67 @@ void setup()
 
   digitalWrite(PIN_PILOT, HIGH);
   digitalWrite(PIN_REFRIG, LOW);
+  currentFridgeState = FRIDGE_POWER_ON;
 
-  Serial.println(F("Initialization complete."));
+  currentSysState = SYSTEM_IDLE_ON;
+  currentInputState = COMMAND_INPUT_INACTIVE;
+
+  Serial.println("Setup() complete.");
 }
 
 
 void loop() {
 
   /*  Event loop */
-  switch (currentSysState) {
-    case SYS_POWER_ON:
-      if (digitalRead(PIN_CMD_IN) == CMD_OFF) {
-        /*
-         * We're seeing false triggering, perhaps because of noise.
-         * Work around it by requiring the command input to stay active
-         * for one second before acting on it.
-         */
-         unsigned long cmdTime = millis();
-         while ((millis() - cmdTime) < 1*1000UL)
-           if (digitalRead(PIN_CMD_IN) == CMD_ON){
-             Serial.println(F("Spurious off command ignored."));
-             break;            
-           }
-         if ((millis() - cmdTime) >= 1*1000UL)
-           cmdPowerOff();
-      }
-      break;
+  if (digitalRead(PIN_CMD_IN) == CMD_ACTIVE) {
+    if (currentInputState == COMMAND_INPUT_INACTIVE) {
 
-    case SYS_POWER_OFF:
-      if ((digitalRead(PIN_CMD_IN) == CMD_ON) || (millis() - offTime > 1000UL * MAXIMUM_OFF_TIMEOUT)) 
-        cmdPowerOn();
-      break;
+      /*
+         Command input just went active.
 
-    case SYS_COMPRESSOR_TIMEOUT:
-      if (millis() - offTime > 1000UL * COMPRESSOR_TIMEOUT)
-        cmdPowerOn();
-      break;
+         We're seeing false triggering, perhaps because of noise.
+         Work around it by requiring the command input to stay active
+         for one second before acting on it.
+      */
+      unsigned long activeTImestamp = millis();
+      while ((millis() - activeTImestamp) < 1 * 1000UL)
+        if (digitalRead(PIN_CMD_IN) == CMD_INACTIVE) {
+          Serial.println(F("Spurious off command ignored."));
+          break;
+        }
+      if ((millis() - activeTImestamp) >= 1 * 1000UL)
+        moveToState(SYSTEM_COMMANDED_OFF);
+
+      currentInputState = COMMAND_INPUT_ACTIVE;
+    }
+  }
+  else if (currentInputState == COMMAND_INPUT_ACTIVE) {
+
+    /* Command input just went inactive. */
+    if (millis() - fridgeOffTimestamp > 1000UL * COMPRESSOR_TIMEOUT)
+      moveToState(SYSTEM_IDLE_ON);
+    else
+      moveToState(SYSTEM_COMPRESSOR_PROTECT_OFF);
+
+    currentInputState = COMMAND_INPUT_INACTIVE;
   }
 
-  /*  If we're in SYS_COMPRESSOR_TIMEOUT, "warble" the pilot LED. */
-  if (currentSysState == SYS_COMPRESSOR_TIMEOUT) {
+  /* Handle end of compressor protect timeout. */
+  if ((currentSysState == SYSTEM_COMPRESSOR_PROTECT_OFF) &&
+      (millis() - fridgeOffTimestamp > 1000UL * COMPRESSOR_TIMEOUT))
+    moveToState(SYSTEM_IDLE_ON);
+
+
+  /* Handle maximum off time timeout. */
+  if ((currentSysState == SYSTEM_COMMANDED_OFF) &&
+      (millis() - fridgeOffTimestamp > 1000UL * MAXIMUM_OFF_TIMEOUT))
+    moveToState(SYSTEM_MAX_TIME_ON);
+
+  /*  If we're in SYSTEM_COMPRESSOR_PROTECT_OFF, "warble" the pilot LED. */
+  if (currentSysState == SYSTEM_COMPRESSOR_PROTECT_OFF) {
     int proportion = (millis() % WARBLE_PERIOD) * 0x1ff / WARBLE_PERIOD;
     if (proportion > 0xff)
       proportion = 0xff - (proportion - 0x100);
     analogWrite(PIN_PILOT, proportion);
   }
-
 }
